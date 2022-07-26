@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   Text,
   Box,
@@ -8,50 +7,108 @@ import {
   Image,
   Spacer,
   Heading,
+  Button,
 } from "native-base";
+import { useCallback, useEffect } from "react";
+import { auth } from "../helpers/firebase";
+import { functions } from "../helpers/firebase";
+import {
+  useAuthUser,
+  useAuthSignInAnonymously,
+  useAuthLinkWithCredential,
+} from "@react-query-firebase/auth";
+import { useFunctionsQuery } from "@react-query-firebase/functions";
+import { EmailAuthProvider } from "firebase/auth";
 
-const loader = () => {
-  return {
-    "2022-07-15": [
-      {
-        id: "activity-id-1",
-        label: "腹筋ローラー",
-        date: "2022/7/15",
-        value: "20",
-        method: "COUNT",
-        exp: 100,
-        createdAt: "14:25",
-        icon: "https://wallpaperaccess.com/full/317501.jpg",
-      },
-      {
-        id: "activity-id-2",
-        label: "腹筋ローラー",
-        date: "2022/7/15",
-        value: "20",
-        method: "COUNT",
-        exp: 100,
-        createdAt: "14:28",
-        icon: "https://wallpaperaccess.com/full/317501.jpg",
-      },
-      {
-        id: "activity-id-3",
-        label: "腹筋ローラー",
-        date: "2022/7/15",
-        value: "01:00",
-        method: "TIME",
-        exp: 200,
-        createdAt: "14:31",
-        icon: "https://wallpaperaccess.com/full/317501.jpg",
-      },
-    ],
-  };
+type RequestData = {};
+type ResponseData = {
+  [key: string]: {
+    id: string;
+    label: string;
+    date: string;
+    value: number;
+    method: string;
+    exp: number;
+    createdAt: string;
+    icon: string;
+  }[];
 };
 
 export function HomeScreen() {
-  const query = useQuery(["todos"], loader);
+  const authQuery = useAuthUser(["user"], auth);
+  const { mutate: linkWithCredential } = useAuthLinkWithCredential({
+    onSuccess(data, variables, context) {
+      console.log("[linkWithCredential, onSuccess]");
+      authQuery.refetch();
+    },
+  });
+  const mutation = useAuthSignInAnonymously(auth, {
+    onSuccess(data, variables, context) {
+      console.log("[onSuccess]: ", data);
+    },
+    onError(error, variables, context) {
+      console.warn("[onError]: ", error);
+    },
+  });
+  const functionsQuery = useFunctionsQuery<RequestData, ResponseData>(
+    ["getActivities"],
+    functions,
+    "getActivities",
+    {}
+  );
+
+  useEffect(() => {
+    console.log("[authQuery.data]: ", authQuery.data);
+  }, [authQuery]);
+
+  const handleSigninAnonymously = useCallback(() => {
+    if (authQuery.isLoading || authQuery.isFetching || authQuery.data) {
+      return () => {};
+    }
+    mutation.mutate({
+      email: "",
+      password: "",
+    });
+  }, [authQuery]);
+
+  const handleSigninWithEmailAndPassword = useCallback(() => {
+    if (!authQuery.data) {
+      return;
+    }
+    const email = "example@example.com";
+    const password = "password";
+    const credential = EmailAuthProvider.credential(email, password);
+    linkWithCredential({
+      user: authQuery.data,
+      credential,
+    });
+  }, [authQuery]);
 
   return (
     <Box flex={1} safeArea>
+      <Box px={3} py={3}>
+        {!authQuery.data && authQuery.isFetched ? (
+          <Button
+            onPress={handleSigninAnonymously}
+            isLoading={authQuery.isFetching || authQuery.isLoading}
+          >
+            {"匿名認証を行う"}
+          </Button>
+        ) : null}
+        {authQuery.data && authQuery.data.isAnonymous ? (
+          <Button
+            bg={authQuery.data?.isAnonymous ? "cyan.500" : "dark.500"}
+            onPress={handleSigninWithEmailAndPassword}
+            isLoading={authQuery.isFetching || authQuery.isLoading}
+            disabled={!authQuery.data?.isAnonymous}
+          >
+            {"匿名アカウントから変更する"}
+          </Button>
+        ) : null}
+        {authQuery.data && !authQuery.data.isAnonymous ? (
+          <Text>{authQuery.data.email}</Text>
+        ) : null}
+      </Box>
       <Box px={3} py={3}>
         <Heading>最近のアクティビティ</Heading>
       </Box>
@@ -64,7 +121,7 @@ export function HomeScreen() {
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
         backgroundColor={"dark.800"}
-        data={query.data?.["2022-07-15"] ?? []}
+        data={functionsQuery.data?.["2022-07-15"] ?? []}
         renderItem={({ item }) => {
           const { icon, date, label, value, createdAt, method, exp } = item;
           return (
